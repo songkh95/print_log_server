@@ -1,169 +1,172 @@
-# Manager_Console/backend/server.py
-from fastapi import FastAPI, Request
+# backend/server.py
 import uvicorn
+from fastapi import FastAPI
+from pydantic import BaseModel
 import sqlite3
-from datetime import datetime
-from models import DB_PATH, init_db
-import calculator
-import threading
 import os
+import threading
 import pystray
 from PIL import Image, ImageDraw
-import configparser
-import logging
-from logging.handlers import RotatingFileHandler
-
-PROGRAM_DATA_DIR = r"C:\ProgramData\MyPrintMonitor"
-LOG_DIR = os.path.join(PROGRAM_DATA_DIR, "logs")
-CONFIG_PATH = os.path.join(PROGRAM_DATA_DIR, "config.ini")
-
-os.makedirs(LOG_DIR, exist_ok=True)
-
-config = configparser.ConfigParser()
-server_port = 8000        
-log_level_str = "INFO"    
-
-if os.path.exists(CONFIG_PATH):
-    config.read(CONFIG_PATH, encoding='utf-8')
-    server_port = int(config.get('SERVER', 'PORT', fallback=server_port))
-    log_level_str = config.get('SERVER', 'LOG_LEVEL', fallback=log_level_str)
-
-logger = logging.getLogger("ManagerServer")
-log_level = getattr(logging, log_level_str.upper(), logging.INFO)
-logger.setLevel(log_level)
-
-log_file_path = os.path.join(LOG_DIR, "server_error.log")
-handler = RotatingFileHandler(log_file_path, maxBytes=5*1024*1024, backupCount=5, encoding='utf-8')
-formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-handler.setFormatter(formatter)
-
-if not logger.handlers:
-    logger.addHandler(handler)
+from datetime import datetime
+import calculator 
 
 app = FastAPI()
-init_db()
+PROGRAM_DATA_DIR = r"C:\ProgramData\MyPrintMonitor"
+DB_PATH = os.path.join(PROGRAM_DATA_DIR, "print_monitor.db")
+
+class PrintLog(BaseModel):
+    uuid: str
+    pc_name: str
+    ip_address: str
+    os_user: str
+    printer_name: str
+    file_name: str
+    total_pages: int
+    color_mode: int
+    paper_size: int
+    copies: int
+    remark: str = ""
+
+class Heartbeat(BaseModel):
+    uuid: str
+
+class StatusUpdate(BaseModel):
+    log_id: int
+    status: str
+    reason: str = ""
+
+@app.get("/api/policy/control")
+def get_control_policy(uuid: str = None):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT ColorLimit, MonoLimit FROM PrintControlPolicy WHERE ID=1")
+        global_row = cursor.fetchone()
+        global_color = global_row[0] if global_row else 999999
+        global_mono = global_row[1] if global_row else 999999
+
+        user_color, user_mono = None, None
+        if uuid:
+            try:
+                cursor.execute("SELECT ColorLimit, MonoLimit FROM Users WHERE UUID=?", (uuid,))
+                user_row = cursor.fetchone()
+                if user_row:
+                    user_color, user_mono = user_row[0], user_row[1]
+            except sqlite3.OperationalError:
+                pass 
+
+        final_color = user_color if user_color is not None else global_color
+        final_mono = user_mono if user_mono is not None else global_mono
+
+        return {"color_limit": final_color, "mono_limit": final_mono}
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    
+    return {"color_limit": 999999, "mono_limit": 999999}
+
+@app.get("/api/print-log/{log_id}/status")
+def get_log_status(log_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT PrintStatus FROM PrintLogs WHERE LogID = ?", (log_id,))
+        row = cursor.fetchone()
+        if row:
+            return {"status": row[0]}
+    except sqlite3.OperationalError: pass
+    finally:
+        conn.close()
+    return {"status": "not_found"}
 
 @app.post("/api/print-log")
-async def receive_print_log(request: Request):
-    try:
-        data = await request.json()
-        
-        uuid = data.get('uuid')
-        pc_name = data.get('pc_name', '알 수 없음')
-        ip_address = data.get('ip_address', '알 수 없음')
-        os_user = data.get('os_user', '알 수 없음')
-        printer_name = data.get('printer_name', '알 수 없음')
-        
-        file_name = data.get('file_name')
-        total_pages = data.get('total_pages')
-        color_mode = data.get('color_mode')
-        paper_size = data.get('paper_size', 9) 
-        copies = data.get('copies', 1)
-        remark = data.get('remark', '')
-        
-        calculated_price = calculator.calculate_price(paper_size, color_mode, total_pages, copies)
-        current_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        
-        # 🌟 [수정됨] 일단 '출력진행중' 상태로 DB에 넣습니다. (완전히 출력되면 클라이언트가 업데이트 할 예정)
-        cursor.execute('''
-            INSERT INTO PrintLogs (User_UUID, PrintTime, FileName, ColorType, PaperSize, TotalPages, Copies, CalculatedPrice, Remark, PrintStatus)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '출력진행중')
-        ''', (uuid, current_time_str, file_name, color_mode, paper_size, total_pages, copies, calculated_price, remark))
-        
-        # 🌟 [추가됨] 방금 넣은 영수증의 고유 번호(LogID)를 가져옵니다.
-        log_id = cursor.lastrowid 
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"📄 [영수증 수신] {os_user}님의 '{file_name}' DB 등록(LogID:{log_id}). 과금액: {calculated_price}원")
-        
-        # 클라이언트에게 영수증 번호(log_id)를 돌려줍니다. 그래야 나중에 취소할 수 있습니다.
-        return {"status": "success", "price": calculated_price, "log_id": log_id}
-        
-    except Exception as e:
-        logger.error(f"🚨 [DB 오류] 영수증 저장 실패: {e}", exc_info=True)
-        return {"status": "error", "message": str(e)}
-
-# ====================================================================
-# 🌟 [신규 추가] 과금 취소 (Rollback) 및 상태 업데이트 API
-# ====================================================================
-@app.post("/api/print-log/status-update")
-async def update_print_status(request: Request):
-    try:
-        data = await request.json()
-        log_id = data.get('log_id')
-        new_status = data.get('status') # '완료' 또는 '과금취소'
-        reason = data.get('reason', '') # 에러 사유 (선택)
-        
-        if log_id and new_status:
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor()
-            
-            if new_status == '과금취소':
-                # 취소된 경우 금액을 0원으로 돌리고 비고란에 사유를 적습니다.
-                cursor.execute("UPDATE PrintLogs SET PrintStatus = ?, CalculatedPrice = 0, Remark = ? WHERE LogID = ?", 
-                               (new_status, f"⚠️ {reason}", log_id))
-                logger.warning(f"🔄 [과금 취소] LogID {log_id} 영수증이 취소되었습니다. (사유: {reason})")
-            else:
-                # 정상 완료된 경우 상태만 '완료'로 바꿉니다.
-                cursor.execute("UPDATE PrintLogs SET PrintStatus = ? WHERE LogID = ?", (new_status, log_id))
-                logger.info(f"✅ [출력 완료] LogID {log_id} 출력이 정상 완료되었습니다.")
-                
-            conn.commit()
-            conn.close()
-            
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"🚨 [DB 오류] 상태 업데이트 실패: {e}", exc_info=True)
-        return {"status": "error"}
+def receive_print_log(log: PrintLog):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    price = calculator.calculate_price(log.paper_size, log.color_mode, log.total_pages, log.copies)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    status = "승인 대기" if "승인 대기" in log.remark else "완료"
+    
+    cursor.execute("""
+        INSERT INTO PrintLogs (PrintTime, User_UUID, FileName, PaperSize, ColorType, TotalPages, Copies, CalculatedPrice, Remark, PrintStatus)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (now, log.uuid, log.file_name, log.paper_size, log.color_mode, log.total_pages, log.copies, price, log.remark, status))
+    
+    log_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return {"status": "success", "log_id": log_id, "price": price}
 
 @app.post("/api/heartbeat")
-async def receive_heartbeat(request: Request):
-    try:
-        uuid = (await request.json()).get('uuid')
-        if uuid:
-            current_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO Users (UUID, UserName, Department, LastHeartbeat, Status)
-                VALUES (?, '미등록 사용자', '미배정', ?, 'Online')
-                ON CONFLICT(UUID) DO UPDATE SET LastHeartbeat = excluded.LastHeartbeat, Status = 'Online'
-            ''', (uuid, current_time_str))
-            conn.commit()
-            conn.close()
-            
-            logger.debug(f"💓 [하트비트] 기기({uuid}) 생존 신고 DB 갱신 완료")
-            
-        return {"status": "alive"}
-    except Exception as e:
-        logger.error(f"🚨 [DB 오류] 하트비트 갱신 실패: {e}", exc_info=True)
+def receive_heartbeat(hb: Heartbeat):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("UPDATE Users SET LastHeartbeat = ?, Status = '온라인' WHERE UUID = ?", (now, hb.uuid))
+    if cursor.rowcount == 0:
+        cursor.execute("INSERT INTO Users (UUID, UserName, Department, Status, LastHeartbeat) VALUES (?, '미등록 사용자', '미배정', '온라인', ?)", (hb.uuid, now))
+    conn.commit()
+    conn.close()
+    return {"status": "ok"}
+
+@app.post("/api/print-log/status-update")
+def update_status(update: StatusUpdate):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT Remark FROM PrintLogs WHERE LogID = ?", (update.log_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
         return {"status": "error"}
+        
+    current_remark = row[0] if row[0] else ""
+    new_remark = current_remark
+    if update.reason:
+        new_remark = f"{current_remark} [{update.reason}]".strip()
+        
+    cursor.execute("UPDATE PrintLogs SET PrintStatus = ?, Remark = ? WHERE LogID = ?", (update.status, new_remark, update.log_id))
+    conn.commit()
+    conn.close()
+    return {"status": "updated"}
 
-def run_uvicorn():
-    logger.info(f"🚀 Manager Server 백그라운드 구동 시작 (포트: {server_port})")
-    uvicorn.run(app, host="0.0.0.0", port=server_port, log_level="error")
+# ====================================================================
+# 🌟 [복구됨] 시스템 트레이 아이콘 (파란색) 및 백그라운드 서버 구동 로직
+# ====================================================================
+def run_fastapi_server():
+    """FastAPI 서버를 백그라운드 스레드에서 실행 (접속 로그 숨김 처리)"""
+    uvicorn.run(app, host="0.0.0.0", port=8000, access_log=False)
 
-def create_image():
+def create_server_image():
+    """서버용 트레이 아이콘 이미지 생성 (파란색)"""
     image = Image.new('RGB', (64, 64), color=(255, 255, 255))
     dc = ImageDraw.Draw(image)
-    dc.rectangle((16, 16, 48, 48), fill=(0, 0, 200))
+    dc.rectangle((16, 16, 48, 48), fill=(0, 100, 255)) # 파란색 아이콘
     return image
 
-def exit_app(icon, item):
-    logger.info("🛑 [종료] 수신 서버를 완전 종료합니다.")
+def exit_server(icon, item):
+    """트레이 아이콘 종료 시 프로세스 강제 종료"""
     icon.stop()
     os._exit(0)
 
-if __name__ == "__main__":
-    server_thread = threading.Thread(target=run_uvicorn, daemon=True)
+def setup_and_start(icon):
+    """아이콘 준비 완료 시 서버 스레드 출발"""
+    icon.visible = True
+    server_thread = threading.Thread(target=run_fastapi_server, daemon=True)
     server_thread.start()
+
+if __name__ == "__main__":
+    os.makedirs(PROGRAM_DATA_DIR, exist_ok=True)
     
-    menu = pystray.Menu(pystray.MenuItem("🛑 수신 서버 완전 종료", exit_app))
-    icon = pystray.Icon("ManagerServer", create_image(), "프린트 과금 수신 서버 (구동 중)", menu)
-    icon.run()
+    # 시스템 트레이 메뉴 구성
+    menu = pystray.Menu(
+        pystray.MenuItem("🛑 중앙 서버 완전 종료", exit_server)
+    )
+    
+    # 트레이 아이콘 실행 (이 코드가 메인 스레드를 점유하며 계속 구동됨)
+    icon = pystray.Icon("PrintServer", create_server_image(), "프린트 중앙 서버 (작동 중)", menu)
+    icon.run(setup=setup_and_start)

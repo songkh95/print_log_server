@@ -11,23 +11,18 @@ class LogsTab(QWidget):
 
     def __init__(self):
         super().__init__()
-        # 수정 모드 상태를 관리하는 변수
         self.is_edit_mode = False
         
         layout = QVBoxLayout(self)
         
-        # -----------------------------------------------------
-        # 1. 상단 컨트롤 영역 (제목, 날짜 조회, 수정, 새로고침)
-        # -----------------------------------------------------
         top_layout = QHBoxLayout()
         title = QLabel("📊 실시간 인쇄 과금 대시보드")
         title.setFont(QFont("Arial", 16, QFont.Bold))
         
-        # 날짜 필터 UI 추가
         self.start_date = QDateEdit()
         self.start_date.setCalendarPopup(True)
         self.start_date.setDisplayFormat("yyyy-MM-dd")
-        self.start_date.setDate(QDate.currentDate().addDays(-30)) # 기본 조회: 최근 30일
+        self.start_date.setDate(QDate.currentDate().addDays(-30)) 
         
         self.end_date = QDateEdit()
         self.end_date.setCalendarPopup(True)
@@ -36,20 +31,22 @@ class LogsTab(QWidget):
         
         search_btn = QPushButton("🔍 조회")
         search_btn.setFixedSize(80, 35)
-        # 조회 버튼 클릭 시 다른 탭의 통계도 함께 갱신되도록 전체 새로고침 신호 발송
         search_btn.clicked.connect(self.refresh_requested.emit)
         
-        # 수정(삭제 활성화) 버튼 추가
         self.edit_btn = QPushButton("✏️ 수정")
-        self.edit_btn.setFixedSize(100, 40)
+        self.edit_btn.setFixedSize(90, 40)
         self.edit_btn.setCheckable(True)
         self.edit_btn.clicked.connect(self.toggle_edit_mode)
+
+        self.cancel_edit_btn = QPushButton("❌ 취소")
+        self.cancel_edit_btn.setFixedSize(80, 40)
+        self.cancel_edit_btn.setVisible(False) 
+        self.cancel_edit_btn.clicked.connect(self.cancel_edit_mode)
 
         refresh_btn = QPushButton("🔄 데이터 새로고침")
         refresh_btn.setFixedSize(150, 40)
         refresh_btn.clicked.connect(self.refresh_requested.emit)
         
-        # 상단 레이아웃 조립
         top_layout.addWidget(title)
         top_layout.addStretch()
         top_layout.addWidget(QLabel("조회 기간 :"))
@@ -57,16 +54,14 @@ class LogsTab(QWidget):
         top_layout.addWidget(QLabel("~"))
         top_layout.addWidget(self.end_date)
         top_layout.addWidget(search_btn)
-        top_layout.addSpacing(20) # 간격 띄우기
+        top_layout.addSpacing(20) 
         top_layout.addWidget(self.edit_btn)
+        top_layout.addWidget(self.cancel_edit_btn) 
         top_layout.addWidget(refresh_btn)
         layout.addLayout(top_layout)
 
-        # -----------------------------------------------------
-        # 2. 메인 테이블 영역 (삭제 열 추가)
-        # -----------------------------------------------------
         self.table_logs = QTableWidget()
-        self.table_logs.setColumnCount(9) # 🌟 삭제 컬럼이 추가되어 총 9개 열
+        self.table_logs.setColumnCount(9) 
         self.table_logs.setHorizontalHeaderLabels([
             "삭제", "인쇄 시간", "사용자명 (부서)", "문서명", "용지", "선택 색상", "스풀러 요청 페이지 ℹ️", "과금액", "비고 (경고)"
         ])
@@ -81,41 +76,39 @@ class LogsTab(QWidget):
         self.table_logs.horizontalHeader().setStretchLastSection(True) 
         self.table_logs.setEditTriggers(QAbstractItemView.NoEditTriggers)
         
-        # 각 열의 너비 지정 (인덱스 + 1 밀림)
-        self.table_logs.setColumnWidth(0, 50)  # 삭제 (X) 버튼 열
-        self.table_logs.setColumnWidth(1, 160) # 인쇄 시간
-        self.table_logs.setColumnWidth(2, 160) # 사용자명
-        self.table_logs.setColumnWidth(3, 280) # 문서명
-        self.table_logs.setColumnWidth(4, 70)  # 용지
-        self.table_logs.setColumnWidth(5, 80)  # 색상
-        self.table_logs.setColumnWidth(6, 150) # 페이지
-        self.table_logs.setColumnWidth(7, 100) # 과금액
+        self.table_logs.setColumnWidth(0, 50)  
+        self.table_logs.setColumnWidth(1, 160) 
+        self.table_logs.setColumnWidth(2, 160) 
+        self.table_logs.setColumnWidth(3, 280) 
+        self.table_logs.setColumnWidth(4, 70)  
+        self.table_logs.setColumnWidth(5, 80)  
+        self.table_logs.setColumnWidth(6, 150) 
+        self.table_logs.setColumnWidth(7, 100) 
         
-        # 🌟 기본적으로 삭제 열(0번 열)은 숨겨둡니다.
         self.table_logs.setColumnHidden(0, True)
-        
         self.table_logs.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table_logs.customContextMenuRequested.connect(self.show_log_context_menu)
         
         layout.addWidget(self.table_logs)
 
-    # ====================================================================
-    # 🌟 [신규] 수정 모드 토글 및 삭제 로직
-    # ====================================================================
     def toggle_edit_mode(self):
-        """수정 버튼 클릭 시 삭제 열을 나타내거나 숨깁니다."""
         self.is_edit_mode = self.edit_btn.isChecked()
         if self.is_edit_mode:
-            self.edit_btn.setText("✅ 수정 완료")
+            self.edit_btn.setText("✅ 완료")
             self.edit_btn.setStyleSheet("background-color: #ffe6e6; color: red; font-weight: bold;")
-            self.table_logs.setColumnHidden(0, False) # 삭제 열 보이기
+            self.cancel_edit_btn.setVisible(True)     
+            self.table_logs.setColumnHidden(0, False) 
         else:
             self.edit_btn.setText("✏️ 수정")
             self.edit_btn.setStyleSheet("")
-            self.table_logs.setColumnHidden(0, True)  # 삭제 열 숨기기
+            self.cancel_edit_btn.setVisible(False)    
+            self.table_logs.setColumnHidden(0, True)  
+
+    def cancel_edit_mode(self):
+        self.edit_btn.setChecked(False) 
+        self.toggle_edit_mode()         
 
     def delete_log(self, log_id):
-        """선택한 영수증을 DB에서 완전히 삭제합니다."""
         reply = QMessageBox.question(self, "삭제 확인", 
             "해당 영수증 내역을 완전히 삭제하시겠습니까?\n(삭제된 데이터는 인쇄 통계에서도 영구적으로 제외됩니다.)", 
             QMessageBox.Yes | QMessageBox.No)
@@ -126,7 +119,6 @@ class LogsTab(QWidget):
             try:
                 cursor.execute("DELETE FROM PrintLogs WHERE LogID = ?", (log_id,))
                 conn.commit()
-                # 삭제 성공 시 전체 데이터와 통계를 갱신합니다.
                 self.refresh_requested.emit() 
             except Exception as e:
                 QMessageBox.critical(self, "시스템 오류", f"삭제 중 오류가 발생했습니다: {e}")
@@ -134,35 +126,90 @@ class LogsTab(QWidget):
                 conn.close()
 
     # ====================================================================
-    # 관리자 직권 양방향 과금 수동 조정 UI 로직 (인덱스 수정 반영)
+    # 🌟 [수정] 우클릭 메뉴 통합 (승인/반려 기능과 과금 조정 기능을 함께 표시)
     # ====================================================================
     def show_log_context_menu(self, pos):
         item = self.table_logs.itemAt(pos)
         if item is None: return
         
         row = item.row()
-        # 🌟 인쇄 시간이 1번 열로 밀렸으므로 (row, 1)에서 가져옵니다.
         time_item = self.table_logs.item(row, 1) 
         if not time_item: return
             
         log_id = time_item.data(Qt.UserRole)
         if not log_id: return
             
-        # 🌟 선택 색상이 5번 열로 밀렸으므로 (row, 5)에서 가져옵니다.
-        current_color_text = self.table_logs.item(row, 5).text()
+        color_item = self.table_logs.item(row, 5)
+        current_color_text = color_item.text() if color_item else ""
+        
+        remark_item = self.table_logs.item(row, 8)
+        remark_text = remark_item.text() if remark_item else "" 
         
         menu = QMenu(self)
+        action_approve = None
+        action_reject = None
+        action_to_mono = None
+        action_to_color = None
+        
+        # 1. 문서가 '승인 대기' 상태인 경우 -> 승인/반려 메뉴 최상단에 추가
+        if "승인 대기" in remark_text:
+            action_approve = menu.addAction("✅ 인쇄 승인 (프린터 전송)")
+            action_reject = menu.addAction("❌ 인쇄 반려 (대기열 삭제)")
+            menu.addSeparator() # 🌟 구분선을 넣어 메뉴 영역을 분리합니다.
+            
+        # 2. 과금 조정 메뉴 -> 문서 상태와 무관하게 항상 노출하여 조정 가능하게 함
         if current_color_text == "컬러":
             action_to_mono = menu.addAction("🛠️ 흑백 단가로 과금 조정 (환불/롤백)")
-            action_to_color = None
         else:
             action_to_color = menu.addAction("🛠️ 컬러 단가로 과금 조정 (오류 정정)")
-            action_to_mono = None
         
         action = menu.exec(self.table_logs.viewport().mapToGlobal(pos))
         
-        if action == action_to_mono: self.adjust_billing(log_id, target_color_mode=1)
-        elif action == action_to_color: self.adjust_billing(log_id, target_color_mode=2)
+        if action:
+            if action == action_approve: self.process_approval(log_id, is_approved=True)
+            elif action == action_reject: self.process_approval(log_id, is_approved=False)
+            elif action == action_to_mono: self.adjust_billing(log_id, target_color_mode=1)
+            elif action == action_to_color: self.adjust_billing(log_id, target_color_mode=2)
+
+    # ====================================================================
+    # 🌟 [수정] DB 상태 이중 체크 (Double Action 방지) 로직 추가
+    # ====================================================================
+    def process_approval(self, log_id, is_approved):
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        try:
+            # [버그 방어] DB의 현재 상태를 다시 조회하여 이미 처리된 항목인지 검사합니다.
+            cursor.execute("SELECT PrintStatus, Remark FROM PrintLogs WHERE LogID = ?", (log_id,))
+            row = cursor.fetchone()
+            if not row:
+                QMessageBox.warning(self, "오류", "해당 데이터를 찾을 수 없습니다.")
+                return
+                
+            current_status, old_remark = row
+            
+            if current_status != "승인 대기":
+                QMessageBox.warning(self, "경고", "해당 인쇄물은 이미 승인되거나 처리된 항목입니다.")
+                self.refresh_requested.emit() # 최신 상태로 강제 새로고침
+                return
+
+            # 정상 대기 중인 항목이라면 관리자에게 의사를 다시 묻습니다.
+            status_str = "승인 완료" if is_approved else "반려됨"
+            msg_title = "인쇄 승인" if is_approved else "인쇄 반려"
+            msg_body = "해당 인쇄 작업을 승인하시겠습니까?\n(승인 시 프린터에서 즉시 출력이 시작됩니다.)" if is_approved else "해당 인쇄 작업을 반려하시겠습니까?\n(반려 시 사용자 PC의 대기열에서 즉시 파기됩니다.)"
+            
+            reply = QMessageBox.question(self, msg_title, msg_body, QMessageBox.Yes | QMessageBox.No)
+            
+            if reply == QMessageBox.Yes:
+                new_remark = old_remark.replace("🚨 [승인 대기]", f"[{status_str}]")
+                cursor.execute("UPDATE PrintLogs SET PrintStatus = ?, Remark = ? WHERE LogID = ?", (status_str, new_remark, log_id))
+                conn.commit()
+                QMessageBox.information(self, "처리 완료", f"해당 인쇄 작업이 {status_str} 처리되었습니다.")
+                self.refresh_requested.emit()
+                
+        except Exception as e:
+            QMessageBox.critical(self, "시스템 오류", f"처리 중 오류 발생: {e}")
+        finally:
+            conn.close()
 
     def adjust_billing(self, log_id, target_color_mode):
         conn = sqlite3.connect(DB_PATH)
@@ -180,7 +227,7 @@ class LogsTab(QWidget):
             policy = cursor.fetchone()
             if not policy:
                 cursor.execute("SELECT BaseMonoPrice, BaseColorPrice, Multiplier, ColorMultiplier FROM PricingPolicy WHERE PaperSize = 9")
-                policy =fetchone()
+                policy = cursor.fetchone()
             if not policy:
                 QMessageBox.warning(self, "오류", "단가 정책을 찾을 수 없어 조정을 진행할 수 없습니다.")
                 return
@@ -220,21 +267,16 @@ class LogsTab(QWidget):
         finally:
             conn.close()
 
-    # ====================================================================
-    # 🌟 [수정] 데이터 로딩 시 '날짜 필터' 반영 및 '삭제(X)' 버튼 동적 생성
-    # ====================================================================
     def load_data(self):
         import os
         if not os.path.exists(DB_PATH): return
         
-        # 1. 사용자가 지정한 날짜 필터 문자열 조립 (00:00:00 ~ 23:59:59)
         start_date_str = self.start_date.date().toString("yyyy-MM-dd") + " 00:00:00"
         end_date_str = self.end_date.date().toString("yyyy-MM-dd") + " 23:59:59"
         
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        # 2. 날짜 조건(WHERE BETWEEN)이 추가된 쿼리 실행
         cursor.execute('''
             SELECT p.PrintTime, u.UserName, u.Department, p.FileName, p.PaperSize, p.ColorType, p.TotalPages, p.CalculatedPrice, p.Remark, p.User_UUID, p.LogID 
             FROM PrintLogs p 
@@ -249,7 +291,6 @@ class LogsTab(QWidget):
         for row_idx, row_data in enumerate(logs):
             self.table_logs.insertRow(row_idx)
             
-            # DB에서 꺼내온 데이터 매핑
             time_str = row_data[0][:19]
             user_name, dept, uuid_str, log_id = row_data[1], row_data[2], row_data[9], row_data[10]
             display_user = f"{user_name} ({dept})" if user_name and user_name != "미등록 사용자" else uuid_str[:13] + "..."
@@ -260,13 +301,11 @@ class LogsTab(QWidget):
             price = f"{row_data[7]:,}원"
             remark = row_data[8] if row_data[8] else ""
 
-            # 🌟 [신규] 0번 열: 삭제용 [X] 버튼 생성
             del_btn = QPushButton("❌")
             del_btn.setStyleSheet("color: red; border: none; font-size: 14px;")
             del_btn.setCursor(Qt.PointingHandCursor)
             del_btn.clicked.connect(lambda checked=False, lid=log_id: self.delete_log(lid))
             
-            # 1번 열: 인쇄 시간 (LogID 숨김)
             time_item = QTableWidgetItem(time_str)
             time_item.setData(Qt.UserRole, log_id)
 
@@ -276,19 +315,16 @@ class LogsTab(QWidget):
                 QTableWidgetItem(price), QTableWidgetItem(remark)
             ]
 
-            # 0번째 셀에 삭제 버튼 위젯 부착
             self.table_logs.setCellWidget(row_idx, 0, del_btn)
             
-            # 나머지 1~8번째 셀에 데이터 부착
             for col_idx, item in enumerate(items):
-                # 텍스트 중앙 정렬 (문서명은 좌측 정렬)
                 item.setTextAlignment(Qt.AlignCenter if col_idx != 2 else Qt.AlignLeft | Qt.AlignVCenter)
-                
                 if remark:
-                    if "⚠️" in remark: item.setBackground(QColor(255, 200, 200))
+                    if "🚨 [승인 대기]" in remark: item.setBackground(QColor(255, 240, 150)) 
+                    elif "[반려됨]" in remark: item.setBackground(QColor(240, 240, 240)) 
+                    elif "⚠️" in remark: item.setBackground(QColor(255, 200, 200))
                     elif "관리자 조정" in remark: item.setBackground(QColor(220, 240, 255))
-                
-                # 열 번호가 1칸씩 밀렸으므로 col_idx + 1 에 할당
+                    
                 self.table_logs.setItem(row_idx, col_idx + 1, item)
                 
         conn.close()
