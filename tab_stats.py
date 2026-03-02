@@ -1,8 +1,9 @@
+# Manager_Console/tab_stats.py
 import sqlite3
 import os
 from PySide6.QtWidgets import *
-from PySide6.QtCore import Qt, Signal, QDate
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtCore import Qt, Signal, QDate, QSettings
+from PySide6.QtGui import QColor, QFont, QBrush
 from constants import DB_PATH
 
 class StatsTab(QWidget):
@@ -10,6 +11,9 @@ class StatsTab(QWidget):
 
     def __init__(self):
         super().__init__()
+        # 🌟 [Phase 6 UX 향상] 설정 저장을 위한 QSettings 객체 초기화
+        self.settings = QSettings("MyPrintMonitor", "ManagerConsole_Stats")
+        
         layout = QVBoxLayout(self)
         
         # -----------------------------------------------------
@@ -17,7 +21,12 @@ class StatsTab(QWidget):
         # -----------------------------------------------------
         top_layout = QHBoxLayout()
         title = QLabel("📈 상세 인쇄 통계 및 과금 분석")
-        title.setFont(QFont("Arial", 16, QFont.Bold))
+        
+        # 🛠️ [UI 통일] tab_logs.py와 동일한 네이티브 폰트 및 크기(14) 적용
+        title_font = QFont()
+        title_font.setBold(True)
+        title_font.setPointSize(14)
+        title.setFont(title_font)
         
         self.start_date = QDateEdit()
         self.start_date.setCalendarPopup(True)
@@ -31,10 +40,13 @@ class StatsTab(QWidget):
         
         search_btn = QPushButton("🔍 조회")
         search_btn.setFixedSize(80, 35)
+        search_btn.setStyleSheet("font-weight: bold; font-size: 13px; background-color: #f0f0f0; border-radius: 5px;")
         search_btn.clicked.connect(self.load_data)
 
         refresh_btn = QPushButton("🔄 통계 새로고침")
         refresh_btn.setFixedSize(150, 40)
+        # 🛠️ [UI 통일] tab_logs.py의 새로고침 버튼과 완벽히 동일한 CSS 스타일 적용
+        refresh_btn.setStyleSheet("font-weight: bold; font-size: 13px; background-color: #e0f7fa; border-radius: 5px;")
         refresh_btn.clicked.connect(self.refresh_requested.emit)
         
         top_layout.addWidget(title)
@@ -67,25 +79,52 @@ class StatsTab(QWidget):
     def init_summary_tab(self):
         layout = QVBoxLayout(self.tab_summary)
         
+        # 🛠️ [UI 통일] GroupBox 폰트를 Arial 하드코딩에서 시스템 네이티브 폰트로 변경
+        group_font = QFont()
+        group_font.setBold(True)
+        group_font.setPointSize(12)
+
         group_billing = QGroupBox("💰 용지 및 색상별 정상 과금 통계")
-        group_billing.setFont(QFont("Arial", 12, QFont.Bold))
+        group_billing.setFont(group_font)
         layout_billing = QVBoxLayout(group_billing)
         self.table_stats_billing = QTableWidget()
         self.table_stats_billing.setColumnCount(3)
         self.table_stats_billing.setHorizontalHeaderLabels(["구분 항목", "누적 페이지 수 (장)", "총 과금액 (원)"])
-        self.table_stats_billing.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        
+        # 🛠️ [UI 통일] 테이블 교차 색상(Alternating Row Colors) 적용
+        self.table_stats_billing.setAlternatingRowColors(True)
+
+        # [UX 향상] 과금 테이블 너비 조절 및 상태 복원
+        header_billing = self.table_stats_billing.horizontalHeader()
+        header_billing.setSectionResizeMode(QHeaderView.Interactive)
+        header_billing.setStretchLastSection(True)
+        if self.settings.value("stats_billing_header"):
+            header_billing.restoreState(self.settings.value("stats_billing_header"))
+
         self.table_stats_billing.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table_stats_billing.setSelectionBehavior(QAbstractItemView.SelectRows)
         layout_billing.addWidget(self.table_stats_billing)
         layout.addWidget(group_billing)
 
         group_exception = QGroupBox("🚨 예외 상황 통계 (취소 및 불확실한 데이터)")
-        group_exception.setFont(QFont("Arial", 12, QFont.Bold))
+        group_exception.setFont(group_font)
         layout_exception = QVBoxLayout(group_exception)
         self.table_stats_exception = QTableWidget()
         self.table_stats_exception.setColumnCount(4)
         self.table_stats_exception.setHorizontalHeaderLabels(["예외 항목", "발생 건수", "관련 페이지 수", "관련 과금액 (원)"])
-        self.table_stats_exception.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        
+        # 🛠️ [UI 통일] 테이블 교차 색상 적용
+        self.table_stats_exception.setAlternatingRowColors(True)
+
+        # [UX 향상] 예외 테이블 너비 조절 및 상태 복원
+        header_exception = self.table_stats_exception.horizontalHeader()
+        header_exception.setSectionResizeMode(QHeaderView.Interactive)
+        header_exception.setStretchLastSection(True)
+        if self.settings.value("stats_exception_header"):
+            header_exception.restoreState(self.settings.value("stats_exception_header"))
+
         self.table_stats_exception.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table_stats_exception.setSelectionBehavior(QAbstractItemView.SelectRows)
         layout_exception.addWidget(self.table_stats_exception)
         layout.addWidget(group_exception)
 
@@ -107,12 +146,23 @@ class StatsTab(QWidget):
         self.table_stats_period.setHorizontalHeaderLabels([
             "기간", "총 출력 (장)", "총 과금액 (원)", "흑백 출력 (장)", "컬러 출력 (장)", "취소/오류 (건)", "경고/확인 (건)"
         ])
-        self.table_stats_period.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        
+        # 🛠️ [UI 통일] 테이블 교차 색상 적용
+        self.table_stats_period.setAlternatingRowColors(True)
+
+        # [UX 향상] 기간별 테이블 너비 조절 및 상태 복원
+        header_period = self.table_stats_period.horizontalHeader()
+        header_period.setSectionResizeMode(QHeaderView.Interactive)
+        header_period.setStretchLastSection(True)
+        if self.settings.value("stats_period_header"):
+            header_period.restoreState(self.settings.value("stats_period_header"))
+
         self.table_stats_period.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table_stats_period.setSelectionBehavior(QAbstractItemView.SelectRows)
         layout.addWidget(self.table_stats_period)
 
     # ====================================================================
-    # 🌟 [신규] 날짜 필터를 적용하여 DB에서 데이터를 가져옵니다.
+    # 🌟 새 ORM 컬럼명으로 완벽 매핑된 데이터 로드 함수
     # ====================================================================
     def load_data(self):
         if not os.path.exists(DB_PATH): return
@@ -123,15 +173,14 @@ class StatsTab(QWidget):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        # PrintTime 조건(BETWEEN)을 걸어 기간 내 데이터만 조회합니다.
         try: 
             cursor.execute("""
-                SELECT PrintTime, PaperSize, ColorType, TotalPages, Copies, CalculatedPrice, Remark, PrintStatus 
+                SELECT log_time, paper_size, color_mode, total_pages, copies, calculated_price, remark, print_status 
                 FROM PrintLogs
-                WHERE PrintTime >= ? AND PrintTime <= ?
+                WHERE log_time >= ? AND log_time <= ?
             """, (start_str, end_str))
         except sqlite3.OperationalError: 
-            # 구버전 스키마 대응
+            # 구버전 스키마 대응 로직 유지 (안전망)
             cursor.execute("""
                 SELECT PrintTime, PaperSize, ColorType, TotalPages, Copies, CalculatedPrice, Remark, '완료' 
                 FROM PrintLogs
@@ -145,9 +194,6 @@ class StatsTab(QWidget):
         self.populate_summary_tables()
         self.populate_period_table()
 
-    # ====================================================================
-    # 🌟 종합 요약 테이블 채우기 로직
-    # ====================================================================
     def populate_summary_tables(self):
         stats = {
             'A4_Mono': {'pages': 0, 'price': 0}, 'A4_Color': {'pages': 0, 'price': 0},
@@ -226,17 +272,13 @@ class StatsTab(QWidget):
             items = [QTableWidgetItem(label), QTableWidgetItem(f"{data['count']:,} 건"), QTableWidgetItem(f"{data['pages']:,} 장"), QTableWidgetItem(f"{data['price']:,} 원")]
             for i, item in enumerate(items):
                 item.setTextAlignment(Qt.AlignCenter)
-                if "취소" in label: item.setForeground(QColor(150, 150, 150)) 
-                elif "불확실" in label: item.setForeground(QColor(200, 50, 50)) 
+                if "취소" in label: item.setForeground(QBrush(QColor(150, 150, 150)))
+                elif "불확실" in label: item.setForeground(QBrush(QColor(200, 50, 50)))
                 self.table_stats_exception.setItem(row_idx, i, item)
 
-    # ====================================================================
-    # 🌟 [신규] 일/월/년 기간별 추이 테이블 채우기 로직
-    # ====================================================================
     def populate_period_table(self):
         period_type = self.combo_period.currentIndex()
         
-        # 0: 일별(yyyy-MM-dd), 1: 월별(yyyy-MM), 2: 연별(yyyy)
         char_length = 10
         if period_type == 1: char_length = 7
         elif period_type == 2: char_length = 4
@@ -245,7 +287,7 @@ class StatsTab(QWidget):
 
         for row in self.current_rows:
             p_time, p_size, c_type, t_pages, copies, price, remark, status = row
-            date_key = p_time[:char_length] # 설정된 길이만큼 문자열을 잘라서 그룹 키로 사용
+            date_key = p_time[:char_length]
             
             if date_key not in aggregated:
                 aggregated[date_key] = {'total_pages': 0, 'total_price': 0, 'mono_pages': 0, 'color_pages': 0, 'cancel': 0, 'warn': 0}
@@ -261,14 +303,12 @@ class StatsTab(QWidget):
             if '⚠️' in remark:
                 aggregated[date_key]['warn'] += 1
 
-            # 정상 과금건만 누적 집계
             if not is_cancelled:
                 aggregated[date_key]['total_pages'] += actual_pages
                 aggregated[date_key]['total_price'] += price
                 if c_type == 1: aggregated[date_key]['mono_pages'] += actual_pages
                 elif c_type == 2: aggregated[date_key]['color_pages'] += actual_pages
 
-        # 최신 날짜가 맨 위로 오도록 내림차순 정렬
         sorted_dates = sorted(aggregated.keys(), reverse=True)
         
         self.table_stats_period.setRowCount(0)
@@ -288,6 +328,12 @@ class StatsTab(QWidget):
             
             for col_idx, item in enumerate(items):
                 item.setTextAlignment(Qt.AlignCenter)
-                # 기간 컬럼(0번)은 살짝 회색 배경으로 시인성 강화
                 if col_idx == 0: item.setBackground(QColor(240, 240, 240))
                 self.table_stats_period.setItem(row_idx, col_idx, item)
+
+    # 🌟 [보안/UX] 프로그램 종료 시 3개의 테이블 헤더 상태를 개별적으로 모두 저장
+    def closeEvent(self, event):
+        self.settings.setValue("stats_billing_header", self.table_stats_billing.horizontalHeader().saveState())
+        self.settings.setValue("stats_exception_header", self.table_stats_exception.horizontalHeader().saveState())
+        self.settings.setValue("stats_period_header", self.table_stats_period.horizontalHeader().saveState())
+        super().closeEvent(event)

@@ -29,95 +29,95 @@ class SettingsTab(QWidget):
         form_pricing.addRow("A3 컬러 요금 가중치 (배수):", self.input_a3_color_multi)
         
         layout.addWidget(group_pricing)
-        
-        # --- 2. 🌟 [신규] 인쇄 사전 승인(통제) 조건 설정 영역 ---
-        group_control = QGroupBox("🛑 인쇄 사전 승인(통제) 기준 설정 (전사 공통 기본값)")
+
+        # --- 2. 🌟 [복구] 전사 공통 정책 통제 영역 ---
+        group_control = QGroupBox("🛑 전사 공통 인쇄 통제 (승인 필요 조건)")
         group_control.setFont(QFont("Arial", 12, QFont.Bold))
         form_control = QFormLayout(group_control)
         
-        self.input_color_limit = QLineEdit()
-        self.input_color_limit.setPlaceholderText("예: 10 (0 입력 시 무조건 승인 대기, 빈칸은 제한 없음)")
-        self.input_mono_limit = QLineEdit()
-        self.input_mono_limit.setPlaceholderText("예: 50 (0 입력 시 무조건 승인 대기, 빈칸은 제한 없음)")
-
-        form_control.addRow("🎨 컬러 인쇄 대기 기준 (몇 장 이상일 때 승인 요청):", self.input_color_limit)
-        form_control.addRow("◼️ 흑백 인쇄 대기 기준 (몇 장 이상일 때 승인 요청):", self.input_mono_limit)
+        self.input_control_mono = QLineEdit()
+        self.input_control_mono.setPlaceholderText("빈칸 시 무제한")
+        self.input_control_color = QLineEdit()
+        self.input_control_color.setPlaceholderText("빈칸 시 무제한")
+        
+        form_control.addRow("흑백 인쇄 최대 허용(장) :", self.input_control_mono)
+        form_control.addRow("컬러 인쇄 최대 허용(장) :", self.input_control_color)
         
         layout.addWidget(group_control)
-
-        # --- 저장 버튼 ---
-        save_btn = QPushButton("💾 정책 일괄 저장 및 적용")
-        save_btn.setFixedSize(250, 50)
-        save_btn.clicked.connect(self.save_settings)
         
-        layout.addSpacing(20)
-        layout.addWidget(save_btn, alignment=Qt.AlignCenter)
+        # --- 3. 저장 버튼 영역 ---
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        btn_save = QPushButton("💾 전체 설정 저장")
+        btn_save.setFixedSize(180, 45)
+        btn_save.setStyleSheet("font-size: 14px; font-weight: bold;")
+        btn_save.clicked.connect(self.save_data)
+        
+        btn_layout.addWidget(btn_save)
+        layout.addLayout(btn_layout)
         layout.addStretch()
+        
+        self.load_data()
 
-    def save_settings(self):
+    def save_data(self):
+        if not os.path.exists(DB_PATH): return
         try:
-            # 단가 데이터 파싱
-            mono = int(self.input_a4_mono.text())
-            color = int(self.input_a4_color.text())
-            mono_multi = float(self.input_a3_mono_multi.text())
-            color_multi = float(self.input_a3_color_multi.text())
+            mono = int(self.input_a4_mono.text().strip())
+            color = int(self.input_a4_color.text().strip())
+            mono_multi = int(self.input_a3_mono_multi.text().strip())
+            color_multi = int(self.input_a3_color_multi.text().strip())
             
-            # 🌟 통제 데이터 파싱 (안 적혀 있으면 엄청 큰 숫자로 예외처리하여 사실상 제한 없음 처리)
-            color_limit_text = self.input_color_limit.text().strip()
-            mono_limit_text = self.input_mono_limit.text().strip()
-            
-            color_limit = int(color_limit_text) if color_limit_text else 999999
-            mono_limit = int(mono_limit_text) if mono_limit_text else 999999
-            
+            # 제한 없음(빈칸) 처리 -> DB에는 999999로 저장
+            c_val = self.input_control_color.text().strip()
+            m_val = self.input_control_mono.text().strip()
+            control_color = int(c_val) if c_val.isdigit() else 999999
+            control_mono = int(m_val) if m_val.isdigit() else 999999
+
             conn = sqlite3.connect(DB_PATH)
             cursor = conn.cursor()
             
-            # 요금 업데이트
-            cursor.execute("UPDATE PricingPolicy SET BaseMonoPrice=?, BaseColorPrice=? WHERE PaperSize=9", (mono, color))
-            cursor.execute("UPDATE PricingPolicy SET BaseMonoPrice=?, BaseColorPrice=?, Multiplier=?, ColorMultiplier=? WHERE PaperSize=8", 
-                           (mono, color, mono_multi, color_multi))
-                           
-            # 🌟 통제 업데이트
-            cursor.execute("UPDATE PrintControlPolicy SET ColorLimit=?, MonoLimit=? WHERE ID=1", (color_limit, mono_limit))
+            # 🌟 새 ORM 컬럼명으로 저장 (base_mono_price, color_limit 등)
+            cursor.execute("UPDATE PricingPolicy SET base_mono_price=?, base_color_price=? WHERE paper_size=9", (mono, color))
+            cursor.execute("UPDATE PricingPolicy SET base_mono_price=?, base_color_price=?, multiplier=?, color_multiplier=? WHERE paper_size=8", (mono, color, mono_multi, color_multi))
             
-            conn.commit()
-            conn.close()
+            cursor.execute("UPDATE PrintControlPolicy SET color_limit=?, mono_limit=? WHERE id=1", (control_color, control_mono))
             
-            QMessageBox.information(self, "성공", "정책이 성공적으로 저장되었습니다!\n새로운 정책을 완벽히 적용하려면, 켜져있는 관리자 서버(server.py) 파워셸 창을 한 번 껐다 켜주세요.")
+            conn.commit(); conn.close()
+            
+            QMessageBox.information(self, "성공", "과금 단가 및 전사 정책이 성공적으로 저장되었습니다!\n에이전트들이 통신 주기(10초)마다 변경된 정책을 자동으로 가져갑니다.")
             self.refresh_requested.emit()
         except ValueError:
-            QMessageBox.warning(self, "오류", "단가, 배수, 제한 장수는 반드시 숫자로만 입력해야 합니다.")
+            QMessageBox.warning(self, "오류", "단가, 배수 및 한도는 반드시 숫자로 입력해야 합니다.")
 
     def load_data(self):
         if not os.path.exists(DB_PATH): return
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        # 요금 로드
-        cursor.execute("SELECT BaseMonoPrice, BaseColorPrice FROM PricingPolicy WHERE PaperSize=9")
-        a4_policy = cursor.fetchone()
-        if a4_policy:
-            self.input_a4_mono.setText(str(a4_policy[0]))
-            self.input_a4_color.setText(str(a4_policy[1]))
-            
+        # 요금 로드 (새 ORM 컬럼)
         try:
-            cursor.execute("SELECT Multiplier, ColorMultiplier FROM PricingPolicy WHERE PaperSize=8")
+            cursor.execute("SELECT base_mono_price, base_color_price FROM PricingPolicy WHERE paper_size=9")
+            a4_policy = cursor.fetchone()
+            if a4_policy:
+                self.input_a4_mono.setText(str(a4_policy[0])); self.input_a4_color.setText(str(a4_policy[1]))
+                
+            cursor.execute("SELECT multiplier, color_multiplier FROM PricingPolicy WHERE paper_size=8")
             a3_policy = cursor.fetchone()
             if a3_policy:
-                self.input_a3_mono_multi.setText(str(a3_policy[0]))
-                self.input_a3_color_multi.setText(str(a3_policy[1] if a3_policy[1] is not None else a3_policy[0]))
+                self.input_a3_mono_multi.setText(str(a3_policy[0])); self.input_a3_color_multi.setText(str(a3_policy[1] if a3_policy[1] is not None else a3_policy[0]))
         except sqlite3.OperationalError: pass
         
-        # 🌟 통제 로드
+        # 🌟 통제 로드 (새 ORM 컬럼)
         try:
-            cursor.execute("SELECT ColorLimit, MonoLimit FROM PrintControlPolicy WHERE ID=1")
+            cursor.execute("SELECT color_limit, mono_limit FROM PrintControlPolicy WHERE id=1")
             control_policy = cursor.fetchone()
             if control_policy:
                 # 999999(제한 없음)일 경우 빈칸으로 표시
                 c_lim = "" if control_policy[0] == 999999 else str(control_policy[0])
                 m_lim = "" if control_policy[1] == 999999 else str(control_policy[1])
-                self.input_color_limit.setText(c_lim)
-                self.input_mono_limit.setText(m_lim)
+                self.input_control_color.setText(c_lim)
+                self.input_control_mono.setText(m_lim)
         except sqlite3.OperationalError: pass
         
         conn.close()
